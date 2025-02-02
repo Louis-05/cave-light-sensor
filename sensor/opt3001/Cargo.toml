@@ -1,0 +1,9 @@
+[package]
+name = "opt3001"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+device-driver = "1.0.2"
+embedded-hal = "1.0.0"
+nb = "1.1.0"
