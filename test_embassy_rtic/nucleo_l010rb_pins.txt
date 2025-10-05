@@ -1,0 +1,2 @@
+LED : PA5 / D13
+button : PC13

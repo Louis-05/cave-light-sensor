@@ -13,4 +13,5 @@ pub enum Response{
     EventInfo(Event),
     SensorId(u64),
     EmbeddedTime(u32),
+    Version(u64)
 }

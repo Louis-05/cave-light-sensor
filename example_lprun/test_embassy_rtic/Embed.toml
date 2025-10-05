@@ -1,0 +1,8 @@
+[default.general]
+chip = "STM32L010RBTx"
+
+[default.rtt]
+enabled = true
+
+[default.gdb]
+enabled = false

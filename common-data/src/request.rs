@@ -12,6 +12,7 @@ pub enum Request{
     GetSensorId,
     SetSensorId(u64),
     ClearMemory,
-    GetNumberofEvent,
+    GetNumberOfEvent,
+    GetVersion,
     GetEvent(u32),
 }
