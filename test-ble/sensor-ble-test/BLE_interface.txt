@@ -1,0 +1,197 @@
+================================================================================
+sensor-ble-test — BLE interface specification
+Target: Seeed Xiao nRF52840 running this firmware
+Stack:  Nordic SoftDevice S140 (Bluetooth 5.0)
+================================================================================
+
+This document describes everything an Android (or other) GATT client needs to
+discover the board, connect, and control the three user LEDs (red, green,
+blue) independently. It is the source of truth — if the firmware changes the
+interface, this file must change with it.
+
+--------------------------------------------------------------------------------
+1. Advertising
+--------------------------------------------------------------------------------
+
+After power-on the firmware runs a 15-second visual boot chase. Advertising
+starts ONLY AFTER the chase completes. Allow ~16 s after reset before scanning.
+
+Device name           : "XiaoLED"                       (7 ASCII bytes)
+Advertising type      : Connectable, scannable, undirected (legacy, BLE 4.x)
+Advertising interval  : SoftDevice default (~100 ms)
+
+Advertising data (AD) packet contains:
+  - Flags: 0x06  (LE General Discoverable, BR/EDR Not Supported)
+  - Complete list of 128-bit Service UUIDs:
+      a8c1f8a0-0001-4b1a-8f7e-000000000000
+
+Scan response data contains:
+  - Complete Local Name: "XiaoLED"
+
+A scanner that does not request a scan response will see the service UUID but
+not the name. nRF Connect and most Android apps do both by default.
+
+--------------------------------------------------------------------------------
+2. Connection
+--------------------------------------------------------------------------------
+
+Max simultaneous connections : 1
+ATT MTU                      : 64 bytes (sufficient — all payloads are 5 bytes)
+Bonding / pairing            : NOT required. Plain unauthenticated connection.
+
+Disconnecting a client does NOT reset LED state — it persists in RAM until
+power loss or hardware reset.
+
+--------------------------------------------------------------------------------
+3. GATT layout
+--------------------------------------------------------------------------------
+
+There is a single primary service. The standard mandatory services
+(Generic Access 0x1800, Generic Attribute 0x1801) are also present, supplied
+by the SoftDevice — clients can usually ignore them.
+
+  Service: LED Control
+  UUID   : a8c1f8a0-0001-4b1a-8f7e-000000000000
+  Type   : primary
+
+    +------------------------------------------------------------------+
+    | Characteristic: Red LED control                                  |
+    | UUID         : a8c1f8a0-0001-4b1a-8f7e-000000000001              |
+    | Value length : 5 bytes (fixed)                                   |
+    | Properties   : READ, WRITE (with response), NOTIFY               |
+    +------------------------------------------------------------------+
+
+    +------------------------------------------------------------------+
+    | Characteristic: Green LED control                                |
+    | UUID         : a8c1f8a0-0001-4b1a-8f7e-000000000002              |
+    | Value length : 5 bytes (fixed)                                   |
+    | Properties   : READ, WRITE (with response), NOTIFY               |
+    +------------------------------------------------------------------+
+
+    +------------------------------------------------------------------+
+    | Characteristic: Blue LED control                                 |
+    | UUID         : a8c1f8a0-0001-4b1a-8f7e-000000000003              |
+    | Value length : 5 bytes (fixed)                                   |
+    | Properties   : READ, WRITE (with response), NOTIFY               |
+    +------------------------------------------------------------------+
+
+Each characteristic also exposes a standard Client Characteristic
+Configuration Descriptor (CCCD, UUID 0x2902). Write 0x0001 to a CCCD to
+enable notifications for that characteristic; 0x0000 to disable.
+
+--------------------------------------------------------------------------------
+4. Value format (all three characteristics use the same layout)
+--------------------------------------------------------------------------------
+
+  Offset  Size  Type   Field        Meaning
+  ------  ----  -----  -----------  ------------------------------------------
+  0       1     u8     enabled      0 = LED off (no blinking)
+                                    1 = LED blinking
+                                    Any other value = WRITE REJECTED, no change
+
+  1..5    4     u32    period_ms    Half-period in milliseconds, LITTLE ENDIAN.
+                                    Full on/off cycle = 2 * period_ms.
+                                    Valid range: 20 .. 60000.
+                                    Out-of-range values are CLAMPED at apply
+                                    time (not rejected).
+
+Total payload size: exactly 5 bytes. Writes of any other length are rejected
+by the GATT layer with an error.
+
+--------------------------------------------------------------------------------
+5. Defaults (state at power-on, after the boot chase)
+--------------------------------------------------------------------------------
+
+  enabled   = 0  (off)
+  period_ms = 500  (encoded as F4 01 00 00)
+
+All three LEDs start in the same state. No EEPROM/flash persistence — power
+cycle returns to these defaults.
+
+--------------------------------------------------------------------------------
+6. Behavior
+--------------------------------------------------------------------------------
+
+WRITE
+  - Validated and applied atomically. Both `enabled` and `period_ms` are
+    updated in the same operation; a write is the whole tuple.
+  - Changes take effect IMMEDIATELY — if the LED is mid-cycle, the new period
+    starts on the next state evaluation (within milliseconds).
+  - Writing enabled=1 with a new period_ms restarts blinking with that period.
+  - Writing enabled=0 turns the LED off but PRESERVES period_ms (the read-back
+    value still reflects what was written).
+
+READ
+  - Returns the current authoritative state (5 bytes, same format as write).
+  - Always coherent with what the LED is actually doing.
+
+NOTIFY
+  - Currently NOT pushed on every state change. (Notifications are wired up
+    in the GATT layer but the firmware does not yet emit them after writes.
+    A future version may add per-write notifications so multiple clients
+    stay in sync.) Treat reads as authoritative.
+
+DISCONNECT / RECONNECT
+  - LED state persists. On reconnect, the characteristic values reflect
+    whatever was last written. No re-sync needed.
+
+--------------------------------------------------------------------------------
+7. Worked examples (hex, little-endian)
+--------------------------------------------------------------------------------
+
+To control the RED LED, write to characteristic 0001. Same payload format
+applies to green (0002) and blue (0003).
+
+  Turn red ON, blinking at 500 ms half-period (1 Hz full cycle):
+      Write: 01 F4 01 00 00
+             ^^ enabled=1
+                ^^^^^^^^^^^ period_ms = 0x000001F4 = 500
+
+  Turn red OFF (period preserved):
+      Write: 00 F4 01 00 00
+
+  Set red to 100 ms half-period (5 Hz) and enable:
+      Write: 01 64 00 00 00
+             ^^ enabled=1
+                ^^^^^^^^^^^ period_ms = 0x00000064 = 100
+
+  Set red to 2 s half-period (0.25 Hz) but leave off:
+      Write: 00 D0 07 00 00
+             ^^ enabled=0
+                ^^^^^^^^^^^ period_ms = 0x000007D0 = 2000
+
+Java/Kotlin byte conversion reminder: `ByteBuffer.allocate(5)
+.order(ByteOrder.LITTLE_ENDIAN).put((byte) 1).putInt(500).array()`
+produces the first example.
+
+--------------------------------------------------------------------------------
+8. Recommended Android testing
+--------------------------------------------------------------------------------
+
+Before writing the production Android app, sanity-check the firmware with
+"nRF Connect for Mobile" (Nordic Semiconductor, free, on the Play Store):
+
+  1. Scan — "XiaoLED" appears once the boot chase has finished.
+  2. Connect.
+  3. Expand "LED Control" service (UUID starts with a8c1f8a0).
+  4. For each characteristic, tap the upload arrow, enter a 5-byte hex
+     payload (e.g. 01F4010000), select "WRITE REQUEST", send.
+  5. Tap the down arrow to READ — confirm the value is what you wrote.
+
+If nRF Connect cannot see the device:
+  - Wait at least 16 s after reset (boot chase blocks advertising).
+  - Confirm the firmware actually booted: the chase animation must have
+    been visible.
+  - Try toggling Bluetooth off/on on the phone.
+
+--------------------------------------------------------------------------------
+9. Quick reference card
+--------------------------------------------------------------------------------
+
+  Name:        XiaoLED
+  Service:     a8c1f8a0-0001-4b1a-8f7e-000000000000
+  Red char:    a8c1f8a0-0001-4b1a-8f7e-000000000001
+  Green char:  a8c1f8a0-0001-4b1a-8f7e-000000000002
+  Blue char:   a8c1f8a0-0001-4b1a-8f7e-000000000003
+  Payload:     [enabled u8][period_ms u32 LE]   (5 bytes, half-period 20..60000)
+  Defaults:    00 F4 01 00 00                    (off, 500 ms)

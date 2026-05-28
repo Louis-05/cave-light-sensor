@@ -1,0 +1,32 @@
+[package]
+name = "sensor-ble-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "embassy-time-driver"] }
+embassy-time     = { version = "0.5.1", features = ["tick-hz-32_768"] }
+embassy-nrf      = { version = "0.10.0", features = ["nrf52840", "time-driver-rtc1", "gpiote"] }
+embassy-sync     = "0.8.0"
+embassy-futures  = "0.1.1"
+
+nrf-softdevice      = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "47d6121c6e823120e8b883a7ac75f44ce7daa3aa", features = ["nrf52840", "s140", "ble-peripheral", "ble-gatt-server", "critical-section-impl"] }
+nrf-softdevice-s140 = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "47d6121c6e823120e8b883a7ac75f44ce7daa3aa" }
+
+cortex-m    = "0.7.7"
+cortex-m-rt = "0.7.5"
+panic-halt  = "1"
+
+[profile.release]
+codegen-units    = 1
+debug            = false
+lto              = "fat"
+opt-level        = "z"
+overflow-checks  = false
+panic            = "abort"
+strip            = true
+incremental      = false
+
+[profile.dev]
+panic            = "abort"
+opt-level        = "s"

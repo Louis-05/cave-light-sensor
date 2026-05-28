@@ -1,0 +1,27 @@
+[package]
+name = "sensor-nrf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "embassy-time-driver"] }
+embassy-time     = { version = "0.5.1", features = ["tick-hz-32_768"] }
+embassy-nrf      = { version = "0.10.0", features = ["nrf52840", "time-driver-rtc1", "gpiote"] }
+cortex-m         = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt      = "0.7.5"
+panic-halt = "1"
+
+
+[profile.release]
+codegen-units    = 1
+debug            = false
+lto              = "fat"
+opt-level        = "z"
+overflow-checks  = false
+panic            = "abort"
+strip            = true
+incremental      = false
+
+[profile.dev]
+panic            = "abort"
+opt-level        = "s"
